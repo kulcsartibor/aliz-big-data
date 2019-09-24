@@ -1,20 +1,12 @@
 package ai.aliz.script.cleanup.fileutils;
 
-import com.sun.org.apache.xpath.internal.operations.Bool;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.RecursiveAction;
+import java.util.Objects;
 import java.util.concurrent.RecursiveTask;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /**
@@ -25,60 +17,69 @@ import java.util.function.Predicate;
  * @since 1.0
  */
 public class ConcurrentFileTreeWalk extends RecursiveTask<Boolean> {
-    private final Path startDir;
+    private final File workDir;
     private final Predicate<String> fileNamePredicate;
 
-
-    public ConcurrentFileTreeWalk(Path startDir, Predicate<String> fileNamePredicate) {
-        this.startDir = startDir;
+    /**
+     * Constructor
+     *
+     * @param workDir [{@link File}] :: The {@link File} reference to the working directory which is checked by the
+     *                           currently created {@link RecursiveTask}.
+     * @param fileNamePredicate [{@link Predicate}<String>] :: This predicate is used to check the filename. This shall
+     *                          return <code>true<code/> if the file is marked for deletion
+     */
+    public ConcurrentFileTreeWalk(File workDir, Predicate<String> fileNamePredicate) {
+        this.workDir = workDir;
         this.fileNamePredicate = fileNamePredicate;
-
     }
 
+    /**
+     * @inheritDocs
+     *
+     * @return
+     */
     @Override
     protected Boolean compute() {
         final List<ConcurrentFileTreeWalk> walks = new ArrayList<>();
         final AtomicBoolean keepDir = new AtomicBoolean(false);
 
         try {
-            Files.list(this.startDir).forEach(new Consumer<Path>() {
-                @Override
-                public void accept(Path path) {
-                    File file = path.toFile();
+            File[] parentFiles = workDir.listFiles();
 
-                    if(file.isDirectory()) {
-                        ConcurrentFileTreeWalk walk = new ConcurrentFileTreeWalk(path, fileNamePredicate);
-                        walk.fork();
-                        walks.add(walk);
-                        return;
+            if(Objects.isNull(parentFiles)){
+                return true;
+            }
+
+            for (File file : parentFiles) {
+                if(file.isDirectory()) {
+                    ConcurrentFileTreeWalk walk = new ConcurrentFileTreeWalk(file, fileNamePredicate);
+                    walk.fork();
+                    walks.add(walk);
+                } else if(file.isFile() && fileNamePredicate.test(file.getName())){
+                    if(!file.delete()){
+                        file.deleteOnExit();
                     }
-                    if(file.isFile() && fileNamePredicate.test(file.getName())){
-                        System.out.println("File Deleted: " + file.getAbsolutePath() + " " + file.delete());
-                    }
+                } else {
                     keepDir.set(true);
                 }
-            });
+            }
 
+            // Waits for the sub folders to be processed. this loop check is there is any sub folder which needs to be kept.
             for (ConcurrentFileTreeWalk w : walks) {
                 keepDir.set(keepDir.get() || w.join());
             }
 
-            File currentDir = startDir.toFile();
-
-
-            if(!keepDir.get() && currentDir.isDirectory()){
-                System.out.println("Delete: " + startDir);
-                if(!currentDir.delete()){
-                    currentDir.deleteOnExit();
+            // Delete the working folder if nothing is left in it.
+            if(!keepDir.get() && workDir.isDirectory()){
+                if(!workDir.delete()){
+                    workDir.deleteOnExit();
                 }
             }
 
             return keepDir.get();
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
+            return true;
         }
-
-        return true;
-
     }
 }
