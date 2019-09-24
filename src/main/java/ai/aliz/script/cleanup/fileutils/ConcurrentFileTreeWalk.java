@@ -1,5 +1,8 @@
 package ai.aliz.script.cleanup.fileutils;
 
+import com.sun.org.apache.xpath.internal.operations.Bool;
+
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -9,6 +12,9 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.RecursiveTask;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /**
@@ -18,60 +24,61 @@ import java.util.function.Predicate;
  * @date 9/23/2019
  * @since 1.0
  */
-public class ConcurrentFileTreeWalk extends RecursiveAction {
-    private final Path dir;
-    private final Predicate<Path> fileNamePredicate;
+public class ConcurrentFileTreeWalk extends RecursiveTask<Boolean> {
+    private final Path startDir;
+    private final Predicate<String> fileNamePredicate;
 
 
-    public ConcurrentFileTreeWalk(Path dir, Predicate<Path> fileNamePredicate) {
-        this.dir = dir;
+    public ConcurrentFileTreeWalk(Path startDir, Predicate<String> fileNamePredicate) {
+        this.startDir = startDir;
         this.fileNamePredicate = fileNamePredicate;
 
     }
 
     @Override
-    protected void compute() {
+    protected Boolean compute() {
         final List<ConcurrentFileTreeWalk> walks = new ArrayList<>();
+        final AtomicBoolean keepDir = new AtomicBoolean(false);
+
         try {
-            Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
-
-
+            Files.list(this.startDir).forEach(new Consumer<Path>() {
                 @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    if(fileNamePredicate.test(file)){
-                        Files.delete(file);
-                    }
+                public void accept(Path path) {
+                    File file = path.toFile();
 
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                    if (!dir.equals(ConcurrentFileTreeWalk.this.dir)) {
-                        ConcurrentFileTreeWalk walk = new ConcurrentFileTreeWalk(dir, fileNamePredicate);
+                    if(file.isDirectory()) {
+                        ConcurrentFileTreeWalk walk = new ConcurrentFileTreeWalk(path, fileNamePredicate);
                         walk.fork();
                         walks.add(walk);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    } else {
-                        return FileVisitResult.CONTINUE;
+                        return;
                     }
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                    if(Files.isDirectory(dir) && !Files.list(dir).findAny().isPresent()){
-                        Files.delete(dir);
+                    if(file.isFile() && fileNamePredicate.test(file.getName())){
+                        System.out.println("File Deleted: " + file.getAbsolutePath() + " " + file.delete());
                     }
-
-                    return FileVisitResult.CONTINUE;
+                    keepDir.set(true);
                 }
             });
+
+            for (ConcurrentFileTreeWalk w : walks) {
+                keepDir.set(keepDir.get() || w.join());
+            }
+
+            File currentDir = startDir.toFile();
+
+
+            if(!keepDir.get() && currentDir.isDirectory()){
+                System.out.println("Delete: " + startDir);
+                if(!currentDir.delete()){
+                    currentDir.deleteOnExit();
+                }
+            }
+
+            return keepDir.get();
         } catch (IOException e) {
             e.printStackTrace();
         }
 
-        for (ConcurrentFileTreeWalk w : walks) {
-            w.join();
-        }
+        return true;
+
     }
 }

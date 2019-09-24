@@ -29,35 +29,30 @@ public class DropBaks {
     public static void main(String[] args) throws Exception {
 
         Path path = Paths.get(args[0]);
-        Predicate<Path> fileNamePredicate = path1 -> path1.endsWith(".bak");
 
-//        ConcurrentFileTreeWalk walk = new ConcurrentFileTreeWalk(path, path1 -> path1.endsWith(".bak"));
+        ConcurrentFileTreeWalk walk = new ConcurrentFileTreeWalk(path, path1 -> path1.endsWith(".bak"));
+        ForkJoinPool pool = ForkJoinPool.commonPool();
 
-        ForkJoinPool pool = new ForkJoinPool();
+        pool.invoke(walk);
 
-//        pool.invoke(walk);
+        walk.join();
 
-        Files.walk(path).parallel()
+
+       /* Files.walk(path)
                 .sorted(Comparator.reverseOrder())
-                .filter(new Predicate<Path>() {
-                    @Override
-                    public boolean test(Path path) {
-                        return path.toString().endsWith(".bak");
-                    }
-                })
-                .map(new Function<Path, File>() {
-                    @Override
-                    public File apply(Path path) {
-                        return path.toFile();
-                    }
-                })
+                .map(Path::toFile)
+                .filter(File::isDirectory)
                 .forEach(new Consumer<File>() {
                     @Override
                     public void accept(File file) {
-                        file.delete();
+                        try {
+                            if(!Files.list(file.toPath()).findAny().isPresent()){
+                                file.delete();
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
                     }
-                });
-
-
+                });*/
     }
 }

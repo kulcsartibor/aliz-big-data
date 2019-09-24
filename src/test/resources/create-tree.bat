@@ -16,5 +16,6 @@ MkDir "C:\Temp\%project%\Drawings\Assembly Drawings\"
 echo "Hello" > "C:\Temp\%project%\Drawings\Assembly Drawings\new.docx"
 MkDir "C:\Temp\%project%\Drawings\Part Drawings\"
  
-MkDir "C:\Temp\%project%\3D Models\"
-MkDir "C:\Temp\%project%\3D Models\3D Printer\"
+MkDir "C:\Temp\%project%\3D_Models\"
+MkDir "C:\Temp\%project%\3D_Models\3D_Printer\"
+MkDir "C:\Temp\%project%\3D_Models\3D_Printer\TryToDelete"
